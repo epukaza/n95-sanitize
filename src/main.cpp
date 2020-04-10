@@ -45,8 +45,7 @@
 #define DISPLAY_DC_PIN 8
 #define DISPLAY_RESET_PIN 9
 
-#define RED_LED_PIN 6
-#define GREEN_LED_PIN 5
+#define DONE_LED_PIN 5
 #define SSR_PIN 4
 #define BUTTON_PIN 3
 
@@ -113,6 +112,7 @@ typedef	enum SWITCH
 // ***** PID CONTROL VARIABLES *****
 double setpoint;
 double inputTemp;
+double temporaryInputVar;
 double output;
 double kp = PID_KP_PREHEAT;
 double ki = PID_KI_PREHEAT;
@@ -135,8 +135,8 @@ long lastDebounceTime;
 // Switch press status
 switch_t switchStatus;
 // did encounter a thermocouple error?
+int tcErrorCount = 0;
 bool TCError = false;
-
 
 MAX6675 tcouple(THERMOCOUPLE_CS_PIN);
 U8G2_SSD1305_128X64_ADAFRUIT_F_4W_HW_SPI u8g2(U8G2_R0, DISPLAY_CS_PIN, DISPLAY_DC_PIN, DISPLAY_RESET_PIN);
@@ -150,12 +150,24 @@ void u8g2_prepare(void) {
   u8g2.setFontDirection(0);
 }
 
+// Handle reading temperature from max6675. 
+// Also contains logic to protect against single/double read errors.
+// Requires three read errors in a row to go into error state.
 void readTemp(void) {
-  inputTemp = tcouple.readTempC();
-  if(inputTemp == 32.00) {
-    TCError = true;
-    reflowState = REFLOW_STATE_ERROR;
-    reflowStatus = REFLOW_STATUS_OFF;
+  temporaryInputVar = tcouple.readTempC();
+  // inputTemp = tcouple.readTempC();
+  if(temporaryInputVar == 32.00) {
+    if(tcErrorCount >= 3) {
+      TCError = true;
+      reflowState = REFLOW_STATE_ERROR;
+      reflowStatus = REFLOW_STATUS_OFF;
+    } else {
+      tcErrorCount++;
+    }
+  } else {
+    inputTemp = temporaryInputVar;
+    tcErrorCount = 0;
+    TCError = false;
   }
 }
 
@@ -165,6 +177,9 @@ void setup(void) {
   pinMode(SSR_PIN, OUTPUT);
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+  
+  digitalWrite(DONE_LED_PIN, LOW);
+  pinMode(DONE_LED_PIN, OUTPUT);
 
   u8g2.begin();
   u8g2.clearBuffer();
@@ -250,24 +265,24 @@ void handleReflowState(void) {
     {
       reflowState = REFLOW_STATE_TOO_HOT;
     }
-    else
+    // If switch is pressed, start reflow process
+    else if (switchStatus == SWITCH_1)
     {
-      // If switch is pressed, start reflow process
-      if (switchStatus == SWITCH_1)
-      {
-        switchStatus = SWITCH_NONE;
-        // Initialize PID control window starting time
-        windowStartTime = millis();
-        // Ramp up to minimum soaking temperature
-        setpoint = TEMPERATURE_SOAK;
-        // Tell the PID to range between 0 and the full window size
-        reflowOvenPID.SetOutputLimits(0, windowSize);
-        reflowOvenPID.SetSampleTime(PID_SAMPLE_TIME);
-        // Turn the PID on
-        reflowOvenPID.SetMode(AUTOMATIC);
-        // Proceed to preheat stage
-        reflowState = REFLOW_STATE_PREHEAT;
-      }
+      // Turn off done LED if it was on from a previous cycle.
+      digitalWrite(DONE_LED_PIN, HIGH);
+      // Reset switch state to prevent triggering later code erroneously.
+      switchStatus = SWITCH_NONE;
+      // Initialize PID control window starting time
+      windowStartTime = millis();
+      // Ramp up to minimum soaking temperature
+      setpoint = TEMPERATURE_SOAK;
+      // Tell the PID to range between 0 and the full window size
+      reflowOvenPID.SetOutputLimits(0, windowSize);
+      reflowOvenPID.SetSampleTime(PID_SAMPLE_TIME);
+      // Turn the PID on
+      reflowOvenPID.SetMode(AUTOMATIC);
+      // Proceed to preheat stage
+      reflowState = REFLOW_STATE_PREHEAT;
     }
     break;
 
@@ -300,7 +315,8 @@ void handleReflowState(void) {
     // If minimum cool temperature is achieve       
     if (inputTemp <= TEMPERATURE_COOL_MIN)
     {
-      completePeriod = millis() + 1000;
+      digitalWrite(DONE_LED_PIN, HIGH);
+      completePeriod = millis() + 5000;
       // Turn off reflow process
       reflowStatus = REFLOW_STATUS_OFF;   
       // Proceed to reflow Completion state
@@ -326,7 +342,6 @@ void handleReflowState(void) {
     break;
     
   case REFLOW_STATE_ERROR:
-    
     // If thermocouple problem is still present
     if (isnan(inputTemp))
     {
@@ -368,37 +383,45 @@ void handleSSR(void) {
 }
 
 void drawScreen(void) {
+  u8g2.clearBuffer();
+  short rowOffset = 0;
+  const short rowSize = 12;
+  
+  // Temperature Row
   char temperatureStr[8];
   dtostrf(inputTemp, 4, 2, temperatureStr);
-  u8g2.drawStr( 0, 0, "Temp: ");
-  u8g2.drawStr( 60, 0, temperatureStr);
-  u8g2.drawStr( 100, 0, "C");
+  u8g2.drawStr( 0, rowOffset, "Temp: ");
+  u8g2.drawStr( 60, rowOffset, temperatureStr);
+  u8g2.drawStr( 100, rowOffset, "C");
+  rowOffset += rowSize;
 
-  u8g2.drawStr( 0, 12, "tc_err: ");
-  if (TCError)
-  {
-    u8g2.drawStr( 60, 12, "true");
+  // Thermocouple Status row
+  u8g2.drawStr( 0, rowOffset, "tc_err: ");
+  if (TCError) {
+    u8g2.drawStr( 60, rowOffset, "true");
   } else {
-    u8g2.drawStr( 60, 12, "false");
+    u8g2.drawStr( 60, rowOffset, "false");
   }
+  rowOffset += rowSize;
   
-  u8g2.drawStr( 0, 24, lcdMessagesReflowStatus[reflowState]);
+  // General status row
+  u8g2.drawStr( 0, rowOffset, lcdMessagesReflowStatus[reflowState]);
+  rowOffset += rowSize;
 
+  // Timer for Heat cycle row
   if(reflowState == REFLOW_STATE_SOAK) {
     char soakSecondsStr[8];
     itoa((millis() - soakStartTime)/1000, soakSecondsStr, 10);
-    // dtostrf((millis() - soakStartTime)/1000, 4, 2, soakSecondsStr);
-    u8g2.drawStr( 0, 36, "Time: ");
-    u8g2.drawStr( 40, 36, soakSecondsStr);
-    u8g2.drawStr( 80, 36, "/1800");
-
+    u8g2.drawStr( 0, rowOffset, "Time: ");
+    u8g2.drawStr( 40, rowOffset, soakSecondsStr);
+    u8g2.drawStr( 80, rowOffset, "/1800");
   }
+  rowOffset += rowSize;
 
   u8g2.sendBuffer();
 }
 
 void loop(void) {
-  u8g2.clearBuffer();
   if (millis() > nextRead) {
     readTemp();
   }
