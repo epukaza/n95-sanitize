@@ -107,6 +107,7 @@ MAX6675 tcouple(THERMOCOUPLE_CS_PIN);
 U8G2_SSD1305_128X64_ADAFRUIT_F_4W_HW_SPI u8g2(U8G2_R0, DISPLAY_CS_PIN, DISPLAY_DC_PIN, DISPLAY_RESET_PIN);
 PID reflowOvenPID(&inputTemp, &output, &setpoint, kp, ki, kd, DIRECT);
 
+// Called once in setup, sets global display attributes.
 void u8g2_prepare(void) {
   u8g2.setFont(u8g2_font_8x13_tf);
   u8g2.setFontRefHeightExtendedText();
@@ -136,28 +137,7 @@ void readTemp(void) {
   }
 }
 
-void setup(void) {
-  // Turn off SSR.
-  digitalWrite(SSR_PIN, LOW);
-  pinMode(SSR_PIN, OUTPUT);
-
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
-  
-  digitalWrite(DONE_LED_PIN, LOW);
-  pinMode(DONE_LED_PIN, OUTPUT);
-
-  u8g2.begin();
-  u8g2.clearBuffer();
-  u8g2_prepare();
-
-   // Set window size
-  windowSize = 2000;
-  // Initialize thermocouple reading variable
-  nextRead = millis();
-}
-
 void handleSwitch(void) {
-
   // If switch 1 is pressed
   if (switchStatus == SWITCH_1)
   {
@@ -384,6 +364,26 @@ void drawScreen(void) {
   rowOffset += rowSize;
 
   u8g2.sendBuffer();
+}
+
+void setup(void) {
+  // Turn off SSR.
+  digitalWrite(SSR_PIN, LOW);
+  pinMode(SSR_PIN, OUTPUT);
+
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  
+  digitalWrite(DONE_LED_PIN, LOW);
+  pinMode(DONE_LED_PIN, OUTPUT);
+
+  u8g2.begin();
+  u8g2.clearBuffer();
+  u8g2_prepare();
+
+   // Set window size
+  windowSize = 2000;
+  // Initialize thermocouple reading variable
+  nextRead = millis();
 }
 
 void loop(void) {
