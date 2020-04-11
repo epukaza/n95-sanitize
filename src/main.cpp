@@ -41,9 +41,9 @@
 
 #define THERMOCOUPLE_CS_PIN 7
 
-#define DISPLAY_CS_PIN 10
-#define DISPLAY_DC_PIN 8
-#define DISPLAY_RESET_PIN 9
+#define DISPLAY_RESET_PIN 10
+#define DISPLAY_DC_PIN 9
+#define DISPLAY_CS_PIN 8
 
 #define DONE_LED_PIN 5
 #define SSR_PIN 4
@@ -92,16 +92,16 @@ typedef	enum SWITCH
 // ***** CONSTANTS *****
 #define TEMPERATURE_ROOM 70
 #define TEMPERATURE_SOAK 70
-#define TEMPERATURE_COOL_MIN 40
+#define TEMPERATURE_COOL_MIN 50
 #define SENSOR_SAMPLING_TIME 1000
 #define SOAK_PERIOD_MS 1800000 // 30*60*1000 30 minutes
 #define DEBOUNCE_PERIOD_MIN 50
 
 // ***** PID PARAMETERS *****
 // ***** PRE-HEAT STAGE *****
-#define PID_KP_PREHEAT 80    // default 100
+#define PID_KP_PREHEAT 50    // default 100
 #define PID_KI_PREHEAT 0.025   // default 0.025
-#define PID_KD_PREHEAT 20     // default 20
+#define PID_KD_PREHEAT 50     // default 20
 // ***** SOAKING STAGE *****
 #define PID_KP_SOAK 300     // default 300
 #define PID_KI_SOAK 0.05     // default 0.05
@@ -156,7 +156,7 @@ void u8g2_prepare(void) {
 void readTemp(void) {
   temporaryInputVar = tcouple.readTempC();
   // inputTemp = tcouple.readTempC();
-  if(temporaryInputVar == 32.00) {
+  if(temporaryInputVar == 0.00 || temporaryInputVar == -1.00 ) {
     if(tcErrorCount >= 3) {
       TCError = true;
       reflowState = REFLOW_STATE_ERROR;
@@ -269,7 +269,7 @@ void handleReflowState(void) {
     else if (switchStatus == SWITCH_1)
     {
       // Turn off done LED if it was on from a previous cycle.
-      digitalWrite(DONE_LED_PIN, HIGH);
+      digitalWrite(DONE_LED_PIN, LOW);
       // Reset switch state to prevent triggering later code erroneously.
       switchStatus = SWITCH_NONE;
       // Initialize PID control window starting time
