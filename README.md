@@ -14,8 +14,8 @@ Libraries used:
 
 ## Schematic coming soon, board pictures below
 
-[front](board/front.jpg)
+![front](board/front.jpg)
 
-[back + wiring](board/back.jpg)
+![back + wiring](board/back.jpg)
 
-[interface](board/active.jpg)
+![interface](board/active.jpg)
