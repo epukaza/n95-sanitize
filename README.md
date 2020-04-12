@@ -12,4 +12,10 @@ Libraries used:
 * Display libaray: [olikraus/U8g2_Arduino](https://github.com/olikraus/U8g2_Arduino)
 * PID library: [br3ttb/Arduino-PID-Library](https://github.com/br3ttb/Arduino-PID-Library)
 
-Schematic and board pictures coming soon.
+## Schematic coming soon, board pictures below
+
+[front](board/front.jpg)
+
+[back + wiring](board/back.jpg)
+
+[interface](board/active.jpg)
