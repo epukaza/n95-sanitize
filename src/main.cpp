@@ -2,14 +2,12 @@
 #include <U8g2lib.h>
 #include <PID_v1.h>
 #include <MAX6675.h>
-#include <SPI.h>
-
-#define THERMOCOUPLE_CS_PIN 7
+#include <EasyButton.h>
 
 #define DISPLAY_RESET_PIN 10
 #define DISPLAY_DC_PIN 9
 #define DISPLAY_CS_PIN 8
-
+#define THERMOCOUPLE_CS_PIN 7
 #define DONE_LED_PIN 5
 #define SSR_PIN 4
 #define BUTTON_PIN 3
@@ -41,19 +39,6 @@ typedef enum REFLOW_STATUS
   REFLOW_STATUS_ON
 } reflowStatus_t;
 
-typedef enum DEBOUNCE_STATE
-{
-  DEBOUNCE_STATE_IDLE,
-  DEBOUNCE_STATE_CHECK,
-  DEBOUNCE_STATE_RELEASE
-} debounceState_t;
-
-typedef	enum SWITCH
-{
-	SWITCH_NONE,
-	SWITCH_1
-}	switch_t;
-
 // ***** CONSTANTS *****
 #define TEMPERATURE_ROOM 70
 #define TEMPERATURE_SOAK 70
@@ -82,7 +67,7 @@ double output;
 double kp = PID_KP_PREHEAT;
 double ki = PID_KI_PREHEAT;
 double kd = PID_KD_PREHEAT;
-int windowSize;
+unsigned int windowSize;
 unsigned long now;
 unsigned long windowStartTime;
 unsigned long nextRead;
@@ -93,23 +78,19 @@ unsigned long completePeriod;
 reflowState_t reflowState = REFLOW_STATE_IDLE;
 // Reflow oven controller status
 reflowStatus_t reflowStatus = REFLOW_STATUS_OFF;
-// Switch debounce state machine state variable
-debounceState_t debounceState;
-// Switch debounce timer
-long lastDebounceTime;
-// Switch press status
-switch_t switchStatus;
 // did encounter a thermocouple error?
 int tcErrorCount = 0;
 bool TCError = false;
+bool startReflow = false;
 
 MAX6675 tcouple(THERMOCOUPLE_CS_PIN);
 U8G2_SSD1305_128X64_ADAFRUIT_F_4W_HW_SPI u8g2(U8G2_R0, DISPLAY_CS_PIN, DISPLAY_DC_PIN, DISPLAY_RESET_PIN);
 PID reflowOvenPID(&inputTemp, &output, &setpoint, kp, ki, kd, DIRECT);
+EasyButton button(BUTTON_PIN);
 
 // Called once in setup, sets global display attributes.
-void u8g2_prepare(void) {
-  u8g2.setFont(u8g2_font_8x13_tf);
+inline void u8g2_prepare(void) {
+  u8g2.setFont(u8g2_font_8x13_tr);
   u8g2.setFontRefHeightExtendedText();
   u8g2.setDrawColor(1);
   u8g2.setFontPosTop();
@@ -137,66 +118,17 @@ void readTemp(void) {
   }
 }
 
-void handleSwitch(void) {
-  // If switch 1 is pressed
-  if (switchStatus == SWITCH_1)
-  {
+void buttonPressed(void) {
     // If currently reflow process is on going
-    if (reflowStatus == REFLOW_STATUS_ON)
-    {
-      // Button press is for cancelling
-      // Turn off reflow process
-      reflowStatus = REFLOW_STATUS_OFF;
-      // Reinitialize state machine
-      reflowState = REFLOW_STATE_IDLE;
-    }
-  } 
-
-  // Simple switch debounce state machine (for switch #1 (both analog & digital
-  // switch supported))
-  switch (debounceState)
+  if (reflowStatus == REFLOW_STATUS_ON)
   {
-  case DEBOUNCE_STATE_IDLE:
-    // No valid switch press
-    switchStatus = SWITCH_NONE;
-    // If switch #1 is pressed
-      if (digitalRead(BUTTON_PIN) == LOW)
-      {
-        // Intialize debounce counter
-        lastDebounceTime = millis();
-        // Proceed to check validity of button press
-        debounceState = DEBOUNCE_STATE_CHECK;
-      }  
-    break;
-
-  case DEBOUNCE_STATE_CHECK:
-    // If switch #1 is still pressed
-    if (digitalRead(BUTTON_PIN) == LOW)
-      {
-        // If minimum debounce period is completed
-        if ((millis() - lastDebounceTime) > DEBOUNCE_PERIOD_MIN)
-        {
-          // Proceed to wait for button release
-          debounceState = DEBOUNCE_STATE_RELEASE;
-        }
-      }
-      // False trigger
-      else
-      {
-        // Reinitialize button debounce state machine
-        debounceState = DEBOUNCE_STATE_IDLE; 
-      }
-    break;
-
-  case DEBOUNCE_STATE_RELEASE:
-    if (digitalRead(BUTTON_PIN) == HIGH)
-    {
-      // Valid switch 1 press
-      switchStatus = SWITCH_1;
-      // Reinitialize button debounce state machine
-      debounceState = DEBOUNCE_STATE_IDLE; 
-    }
-    break;
+    // Button press is for cancelling
+    // Turn off reflow process
+    reflowStatus = REFLOW_STATUS_OFF;
+    // Reinitialize state machine
+    reflowState = REFLOW_STATE_IDLE;
+  } else {
+    startReflow = true;
   }
 }
 
@@ -211,12 +143,12 @@ void handleReflowState(void) {
       reflowState = REFLOW_STATE_TOO_HOT;
     }
     // If switch is pressed, start reflow process
-    else if (switchStatus == SWITCH_1)
+    else if (startReflow)
     {
       // Turn off done LED if it was on from a previous cycle.
       digitalWrite(DONE_LED_PIN, LOW);
       // Reset switch state to prevent triggering later code erroneously.
-      switchStatus = SWITCH_NONE;
+      startReflow = false;
       // Initialize PID control window starting time
       windowStartTime = millis();
       // Ramp up to minimum soaking temperature
@@ -372,7 +304,10 @@ void setup(void) {
   pinMode(SSR_PIN, OUTPUT);
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
-  
+  button.begin();
+  button.onPressed(buttonPressed);
+  // button.onPressedFor(2000, buttonHeld);
+
   digitalWrite(DONE_LED_PIN, LOW);
   pinMode(DONE_LED_PIN, OUTPUT);
 
@@ -392,8 +327,8 @@ void loop(void) {
   }
 
   handleReflowState();
-
-  handleSwitch();
+  
+  button.read();
 
   handleSSR();
 
