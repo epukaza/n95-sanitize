@@ -39,12 +39,24 @@ typedef enum REFLOW_STATUS
   REFLOW_STATUS_ON
 } reflowStatus_t;
 
+
+struct reflowProfile{
+  const char* profileName;
+  int soakTemp;
+  unsigned long soakPeriodMS;
+};
+
+#define NUM_REFLOW_PROFILES 3
+reflowProfile profiles[NUM_REFLOW_PROFILES] = {
+  {"Sanitize Masks", 70, 1800000}, // 30*60*1000 30 minutes
+  {"Dry PLA", 45, 1800000*8},
+  {"Dry PETG", 70, 1800000*4}
+};
+
 // ***** CONSTANTS *****
-#define TEMPERATURE_ROOM 70
-#define TEMPERATURE_SOAK 70
+#define TEMPERATURE_ROOM 45
 #define TEMPERATURE_COOL_MIN 50
 #define SENSOR_SAMPLING_TIME 1000
-#define SOAK_PERIOD_MS 1800000 // 30*60*1000 30 minutes
 #define DEBOUNCE_PERIOD_MIN 50
 
 // ***** PID PARAMETERS *****
@@ -82,6 +94,7 @@ reflowStatus_t reflowStatus = REFLOW_STATUS_OFF;
 int tcErrorCount = 0;
 bool TCError = false;
 bool startReflow = false;
+int activeReflowProfile = 0;
 
 MAX6675 tcouple(THERMOCOUPLE_CS_PIN);
 U8G2_SSD1305_128X64_ADAFRUIT_F_4W_HW_SPI u8g2(U8G2_R0, DISPLAY_CS_PIN, DISPLAY_DC_PIN, DISPLAY_RESET_PIN);
@@ -119,7 +132,7 @@ void readTemp(void) {
 }
 
 void buttonPressed(void) {
-    // If currently reflow process is on going
+  // If currently reflow process is on going
   if (reflowStatus == REFLOW_STATUS_ON)
   {
     // Button press is for cancelling
@@ -127,8 +140,26 @@ void buttonPressed(void) {
     reflowStatus = REFLOW_STATUS_OFF;
     // Reinitialize state machine
     reflowState = REFLOW_STATE_IDLE;
+    activeReflowProfile = 0;
   } else {
     startReflow = true;
+  }
+}
+
+void buttonHeld(void) {
+  // If currently reflow process is on going
+  if (reflowStatus == REFLOW_STATUS_ON)
+  {// Button press is for cancelling
+    // Turn off reflow process
+    reflowStatus = REFLOW_STATUS_OFF;
+    // Reinitialize state machine
+    reflowState = REFLOW_STATE_IDLE;
+    activeReflowProfile = 0;
+  } else {
+    activeReflowProfile++;
+    if (activeReflowProfile >= NUM_REFLOW_PROFILES) {
+      activeReflowProfile = 0;
+    }
   }
 }
 
@@ -152,7 +183,7 @@ void handleReflowState(void) {
       // Initialize PID control window starting time
       windowStartTime = millis();
       // Ramp up to minimum soaking temperature
-      setpoint = TEMPERATURE_SOAK;
+      setpoint = profiles[activeReflowProfile].soakTemp;
       // Tell the PID to range between 0 and the full window size
       reflowOvenPID.SetOutputLimits(0, windowSize);
       reflowOvenPID.SetSampleTime(PID_SAMPLE_TIME);
@@ -166,11 +197,11 @@ void handleReflowState(void) {
   case REFLOW_STATE_PREHEAT:
     reflowStatus = REFLOW_STATUS_ON;
     // If minimum soak temperature is achieved.
-    if (inputTemp >= TEMPERATURE_SOAK)
+    if (inputTemp >= profiles[activeReflowProfile].soakTemp)
     {
       soakStartTime = millis();
       // Chop soaking period into smaller sub-period
-      timerSoak = soakStartTime + SOAK_PERIOD_MS;
+      timerSoak = soakStartTime + profiles[activeReflowProfile].soakPeriodMS;
       // Set less agressive PID parameters for soaking ramp
       reflowOvenPID.SetTunings(PID_KP_SOAK, PID_KI_SOAK, PID_KD_SOAK);
       // Proceed to soaking state
@@ -182,7 +213,7 @@ void handleReflowState(void) {
     // If micro soak temperature is achieved       
     if (millis() > timerSoak)
     {
-      timerSoak = millis() + SOAK_PERIOD_MS;
+      timerSoak = millis() + profiles[activeReflowProfile].soakPeriodMS;
       reflowStatus = REFLOW_STATUS_OFF;
       reflowState = REFLOW_STATE_COOL; 
     }
@@ -206,6 +237,7 @@ void handleReflowState(void) {
     {
       // Reflow process ended
       reflowState = REFLOW_STATE_IDLE; 
+      activeReflowProfile = 0;
     }
     break;
   
@@ -272,13 +304,8 @@ void drawScreen(void) {
   u8g2.drawStr( 100, rowOffset, "C");
   rowOffset += rowSize;
 
-  // Thermocouple Status row
-  u8g2.drawStr( 0, rowOffset, "tc_err: ");
-  if (TCError) {
-    u8g2.drawStr( 60, rowOffset, "true");
-  } else {
-    u8g2.drawStr( 60, rowOffset, "false");
-  }
+  // Current Profile
+  u8g2.drawStr( 0, rowOffset, profiles[activeReflowProfile].profileName);
   rowOffset += rowSize;
   
   // General status row
@@ -306,7 +333,7 @@ void setup(void) {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   button.begin();
   button.onPressed(buttonPressed);
-  // button.onPressedFor(2000, buttonHeld);
+  button.onPressedFor(1000, buttonHeld);
 
   digitalWrite(DONE_LED_PIN, LOW);
   pinMode(DONE_LED_PIN, OUTPUT);
@@ -327,7 +354,7 @@ void loop(void) {
   }
 
   handleReflowState();
-  
+
   button.read();
 
   handleSSR();
