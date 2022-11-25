@@ -11,6 +11,7 @@
 #define DONE_LED_PIN 5
 #define SSR_PIN 4
 #define BUTTON_PIN 3
+#define FAN_PIN 6
 
 const char* lcdMessagesReflowStatus[] = {
   "Ready",
@@ -44,13 +45,14 @@ struct reflowProfile{
   const char* profileName;
   int soakTemp;
   unsigned long soakPeriodMS;
+  const char* timeInSeconds;
 };
 
 #define NUM_REFLOW_PROFILES 3
 reflowProfile profiles[NUM_REFLOW_PROFILES] = {
-  {"Sanitize Masks", 70, 1800000}, // 30*60*1000 30 minutes
-  {"Dry PLA", 45, 1800000*8},
-  {"Dry PETG", 70, 1800000*4}
+  {"Sanitize Masks", 70, 1800000, "1800"}, // 30*60*1000 30 minutes in ms
+  {"Dry PLA", 45, 1800000*8, "14400"}, // 4 hours
+  {"Dry PETG", 70, 1800000*4, "7200"} // 2 hours
 };
 
 // ***** CONSTANTS *****
@@ -154,7 +156,6 @@ void buttonHeld(void) {
     reflowStatus = REFLOW_STATUS_OFF;
     // Reinitialize state machine
     reflowState = REFLOW_STATE_IDLE;
-    activeReflowProfile = 0;
   } else {
     activeReflowProfile++;
     if (activeReflowProfile >= NUM_REFLOW_PROFILES) {
@@ -302,6 +303,7 @@ void drawScreen(void) {
   u8g2.drawStr( 0, rowOffset, "Temp: ");
   u8g2.drawStr( 60, rowOffset, temperatureStr);
   u8g2.drawStr( 100, rowOffset, "C");
+
   rowOffset += rowSize;
 
   // Current Profile
@@ -318,17 +320,33 @@ void drawScreen(void) {
     itoa((millis() - soakStartTime)/1000, soakSecondsStr, 10);
     u8g2.drawStr( 0, rowOffset, "Time: ");
     u8g2.drawStr( 40, rowOffset, soakSecondsStr);
-    u8g2.drawStr( 80, rowOffset, "/1800");
+    u8g2.drawStr( 80, rowOffset, profiles[activeReflowProfile].timeInSeconds);
   }
   rowOffset += rowSize;
 
+  char *targetTempStr = "Target Temp:    ";
+  itoa(profiles[activeReflowProfile].soakTemp, &targetTempStr[13], 10);
+  u8g2.drawStr( 0, rowOffset, targetTempStr);
+  rowOffset += rowSize;
+  
   u8g2.sendBuffer();
+}
+
+void handleFan() {
+  if(reflowStatus == REFLOW_STATUS_ON || reflowState != REFLOW_STATE_IDLE) {
+    digitalWrite(FAN_PIN, HIGH);
+  } else {
+    digitalWrite(FAN_PIN, LOW);
+  }
 }
 
 void setup(void) {
   // Turn off SSR.
   digitalWrite(SSR_PIN, LOW);
   pinMode(SSR_PIN, OUTPUT);
+
+  digitalWrite(FAN_PIN, LOW);
+  pinMode(FAN_PIN, OUTPUT);
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   button.begin();
@@ -358,6 +376,8 @@ void loop(void) {
   button.read();
 
   handleSSR();
+
+  handleFan();
 
   drawScreen();
 }
