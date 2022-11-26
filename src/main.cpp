@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <SPI.h>
 #include <U8g2lib.h>
 #include <PID_v1.h>
 #include <MAX6675.h>
@@ -15,12 +16,12 @@
 
 const char* lcdMessagesReflowStatus[] = {
   "Ready",
-  "Heating",
-  "Holding temp",
+  "Heat",
+  "Hold",
   "Cool",
-  "Complete",
-  "Wait,hot",
-  "Error"
+  "Done",
+  "Wait",
+  "Err"
 };
 
 typedef enum REFLOW_STATE
@@ -63,8 +64,8 @@ reflowProfile profiles[NUM_REFLOW_PROFILES] = {
 
 // ***** PID PARAMETERS *****
 // ***** PRE-HEAT STAGE *****
-#define PID_KP_PREHEAT 50    // default 100
-#define PID_KI_PREHEAT 0.025   // default 0.025
+#define PID_KP_PREHEAT 20    // default 100
+#define PID_KI_PREHEAT 0.1   // default 0.025
 #define PID_KD_PREHEAT 50     // default 20
 // ***** SOAKING STAGE *****
 #define PID_KP_SOAK 300     // default 300
@@ -100,7 +101,8 @@ int activeReflowProfile = 0;
 
 MAX6675 tcouple(THERMOCOUPLE_CS_PIN);
 U8G2_SSD1305_128X64_ADAFRUIT_F_4W_HW_SPI u8g2(U8G2_R0, DISPLAY_CS_PIN, DISPLAY_DC_PIN, DISPLAY_RESET_PIN);
-PID reflowOvenPID(&inputTemp, &output, &setpoint, kp, ki, kd, DIRECT);
+// PID reflowOvenPID(&inputTemp, &output, &setpoint, kp, ki, kd, DIRECT);
+PID reflowOvenPID(&inputTemp, &output, &setpoint, kp, ki, kd, P_ON_M, DIRECT);
 EasyButton button(BUTTON_PIN);
 
 // Called once in setup, sets global display attributes.
@@ -142,7 +144,6 @@ void buttonPressed(void) {
     reflowStatus = REFLOW_STATUS_OFF;
     // Reinitialize state machine
     reflowState = REFLOW_STATE_IDLE;
-    activeReflowProfile = 0;
   } else {
     startReflow = true;
   }
@@ -221,7 +222,7 @@ void handleReflowState(void) {
     break;
 
   case REFLOW_STATE_COOL:
-    // If minimum cool temperature is achieve       
+    // If minimum cool temperature is achieved       
     if (inputTemp <= TEMPERATURE_COOL_MIN)
     {
       digitalWrite(DONE_LED_PIN, HIGH);
@@ -238,7 +239,6 @@ void handleReflowState(void) {
     {
       // Reflow process ended
       reflowState = REFLOW_STATE_IDLE; 
-      activeReflowProfile = 0;
     }
     break;
   
@@ -364,11 +364,17 @@ void setup(void) {
   windowSize = 2000;
   // Initialize thermocouple reading variable
   nextRead = millis();
+  // Serial.begin(9600);
 }
 
 void loop(void) {
-  if (millis() > nextRead) {
+  now = millis();
+  if (now > nextRead) {
     readTemp();
+    // Serial.print(setpoint);
+    // Serial.println(",");
+    // Serial.println(inputTemp);
+    nextRead += 1000;
   }
 
   handleReflowState();
