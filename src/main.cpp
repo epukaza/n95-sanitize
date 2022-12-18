@@ -1,5 +1,7 @@
 #include <Arduino.h>
+#include <HardwareSerial.h>
 #include <SPI.h>
+// #include <Wire.h>
 #include <U8g2lib.h>
 #include <PID_v1.h>
 #include <MAX6675.h>
@@ -52,25 +54,23 @@ struct reflowProfile{
 #define NUM_REFLOW_PROFILES 3
 reflowProfile profiles[NUM_REFLOW_PROFILES] = {
   {"Sanitize Masks", 70, 1800000, "1800"}, // 30*60*1000 30 minutes in ms
-  {"Dry PLA", 45, 1800000*8, "14400"}, // 4 hours
+  {"Dry PLA", 50, 1800000*8, "14400"}, // 4 hours
   {"Dry PETG", 70, 1800000*4, "7200"} // 2 hours
 };
 
 // ***** CONSTANTS *****
 #define TEMPERATURE_ROOM 45
 #define TEMPERATURE_COOL_MIN 50
-#define SENSOR_SAMPLING_TIME 1000
-#define DEBOUNCE_PERIOD_MIN 50
 
 // ***** PID PARAMETERS *****
 // ***** PRE-HEAT STAGE *****
-#define PID_KP_PREHEAT 20    // default 100
-#define PID_KI_PREHEAT 0.1   // default 0.025
-#define PID_KD_PREHEAT 50     // default 20
+#define PID_KP_PREHEAT 64
+#define PID_KI_PREHEAT 0.5
+#define PID_KD_PREHEAT 0
 // ***** SOAKING STAGE *****
-#define PID_KP_SOAK 300     // default 300
-#define PID_KI_SOAK 0.05     // default 0.05
-#define PID_KD_SOAK 250     // default 250
+// #define PID_KP_SOAK 300     // default 300
+// #define PID_KI_SOAK 0.05     // default 0.05
+// #define PID_KD_SOAK 250     // default 250
 
 #define PID_SAMPLE_TIME 1000  //default 1000
 
@@ -144,6 +144,8 @@ void buttonPressed(void) {
     reflowStatus = REFLOW_STATUS_OFF;
     // Reinitialize state machine
     reflowState = REFLOW_STATE_IDLE;
+    // Turn off PID calculations
+    reflowOvenPID.SetMode(MANUAL);
   } else {
     startReflow = true;
   }
@@ -166,7 +168,7 @@ void buttonHeld(void) {
 }
 
 // Reflow oven controller state machine
-void handleReflowState(void) {
+inline void handleReflowState(void) {
   switch (reflowState)
   {
   case REFLOW_STATE_IDLE:
@@ -205,32 +207,32 @@ void handleReflowState(void) {
       // Chop soaking period into smaller sub-period
       timerSoak = soakStartTime + profiles[activeReflowProfile].soakPeriodMS;
       // Set less agressive PID parameters for soaking ramp
-      reflowOvenPID.SetTunings(PID_KP_SOAK, PID_KI_SOAK, PID_KD_SOAK);
+      // reflowOvenPID.SetTunings(PID_KP_SOAK, PID_KI_SOAK, PID_KD_SOAK);
       // Proceed to soaking state
-      reflowState = REFLOW_STATE_SOAK; 
+      reflowState = REFLOW_STATE_SOAK;
     }
     break;
 
   case REFLOW_STATE_SOAK:
-    // If micro soak temperature is achieved       
+    // If micro soak temperature is achieved
     if (millis() > timerSoak)
     {
-      timerSoak = millis() + profiles[activeReflowProfile].soakPeriodMS;
       reflowStatus = REFLOW_STATUS_OFF;
-      reflowState = REFLOW_STATE_COOL; 
+      reflowState = REFLOW_STATE_COOL;
+      reflowOvenPID.SetMode(MANUAL);
     }
     break;
 
   case REFLOW_STATE_COOL:
-    // If minimum cool temperature is achieved       
+    // If minimum cool temperature is achieved
     if (inputTemp <= TEMPERATURE_COOL_MIN)
     {
       digitalWrite(DONE_LED_PIN, HIGH);
       completePeriod = millis() + 5000;
       // Turn off reflow process
-      reflowStatus = REFLOW_STATUS_OFF;   
+      reflowStatus = REFLOW_STATUS_OFF;
       // Proceed to reflow Completion state
-      reflowState = REFLOW_STATE_COMPLETE; 
+      reflowState = REFLOW_STATE_COMPLETE;
     }         
     break;    
 
@@ -268,7 +270,7 @@ void handleReflowState(void) {
 }
 
 // PID computation and SSR control
-void handleSSR(void) {
+inline void handleSSR(void) {
   if (reflowStatus == REFLOW_STATUS_ON)
   {
     now = millis();
@@ -332,7 +334,7 @@ void drawScreen(void) {
   u8g2.sendBuffer();
 }
 
-void handleFan() {
+inline void handleFan() {
   if(reflowStatus == REFLOW_STATUS_ON || reflowState != REFLOW_STATE_IDLE) {
     digitalWrite(FAN_PIN, HIGH);
   } else {
@@ -364,17 +366,21 @@ void setup(void) {
   windowSize = 2000;
   // Initialize thermocouple reading variable
   nextRead = millis();
-  // Serial.begin(9600);
+  // Serial.begin(115200);
 }
 
 void loop(void) {
   now = millis();
   if (now > nextRead) {
     readTemp();
+    // Serial.print(profiles[activeReflowProfile].profileName);
+    // Serial.print(" ");
+    // Serial.print(lcdMessagesReflowStatus[reflowState]);
+    // Serial.print(": ");
     // Serial.print(setpoint);
-    // Serial.println(",");
+    // Serial.print(",");
     // Serial.println(inputTemp);
-    nextRead += 1000;
+    nextRead += 500;
   }
 
   handleReflowState();
