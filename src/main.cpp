@@ -53,9 +53,9 @@ struct reflowProfile{
 
 #define NUM_REFLOW_PROFILES 3
 reflowProfile profiles[NUM_REFLOW_PROFILES] = {
-  {"Sanitize Masks", 70, 1800000, "1800"}, // 30*60*1000 30 minutes in ms
   {"Dry PLA", 50, 1800000*8, "14400"}, // 4 hours
-  {"Dry PETG", 70, 1800000*4, "7200"} // 2 hours
+  {"Dry PETG", 70, 1800000*4, "7200"}, // 2 hours
+  {"Dry Dessicant", 93, 1800000*6, "108000"} // 3 hours
 };
 
 // ***** CONSTANTS *****
